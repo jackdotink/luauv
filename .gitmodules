@@ -1,0 +1,6 @@
+[submodule "vendor/luau"]
+	path = vendor/luau
+	url = https://github.com/luau-lang/luau
+[submodule "vendor/libuv"]
+	path = vendor/libuv
+	url = https://github.com/libuv/libuv
