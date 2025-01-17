@@ -32,29 +32,36 @@ static int taskspawn(lua_State* L) {
 }
 
 typedef struct {
+	uv_timer_t uv;
+
 	luauv_threadref_t thread;
 	luauv_threadref_t from;
-	int nargs;
-} taskdelaydata;
+	int argsref;
+} taskdelay_t;
 
-static void taskdelaycb(uv_timer_t* handle) {
-	taskdelaydata* data = handle->data;
+static void taskdelay_cb(uv_timer_t* uv) {
+	taskdelay_t* req = uv->data;
 
-	luauv_scheduler_spawn(
-		luauv_threadref_get(&data->thread),
-		luauv_threadref_get(&data->from),
-		data->nargs
-	);
+	lua_State* thread = luauv_threadref_get(&req->thread);
+	lua_State* from = luauv_threadref_get(&req->from);
 
-	luauv_threadref_cleanup(&data->thread);
-	luauv_threadref_cleanup(&data->from);
-	free(data);
+	lua_getref(thread, req->argsref);
+	int nargs = lua_objlen(thread, -1);
+	
+	for (int i = 0; i < nargs; i++) {
+		lua_rawgeti(thread, -(i + 1), i + 1);
+	}
 
-	uv_timer_stop(handle);
-	free(handle);
+	luauv_scheduler_spawn(thread, from, nargs);
+
+	uv_timer_stop(uv);
+	luauv_threadref_cleanup(&req->thread);
+	luauv_threadref_cleanup(&req->from);
+	lua_unref(thread, req->argsref);
+	free(req);
 }
 
-static int taskdelay(lua_State* L) {	
+static int taskdelay_fn(lua_State* L) {
 	double time = luaL_checknumber(L, 1);
 	lua_State* thread;
 
@@ -70,57 +77,61 @@ static int taskdelay(lua_State* L) {
 	}
 
 	int nargs = lua_gettop(L) - 2;
-	lua_xmove(L, thread, nargs);
+	lua_createtable(L, nargs, 0);
 
-	taskdelaydata* data = malloc(sizeof(taskdelaydata));
-	luauv_threadref_init(&data->thread, thread);
-	luauv_threadref_init(&data->from, L);
-	data->nargs = nargs;
+	for (int i = 0; i < nargs; i++) {
+		lua_pushvalue(L, i + 3);
+		lua_rawseti(L, -2, i + 1);
+	}
 
-	uv_timer_t* handle = malloc(sizeof(uv_timer_t));
-	uv_timer_init(luauv_execute_getloop(L), handle);
-	handle->data = data;
+	taskdelay_t* req = malloc(sizeof(taskdelay_t));
 
-	uv_timer_start(handle, taskdelaycb, (uint64_t) (time * 1000.0), 0);
+	luauv_threadref_init(&req->thread, thread);
+	luauv_threadref_init(&req->from, L);
+	req->argsref = lua_ref(L, -1);
+	
+	uv_timer_init(luauv_execute_getloop(L), &req->uv);
+	req->uv.data = req;
+
+	uv_timer_start(&req->uv, taskdelay_cb, (uint64_t) (time * 1000.0), 0);
+
+	lua_pop(L, 1);
 
 	return 1;
 }
 
 typedef struct {
+	uv_timer_t uv;
+
 	luauv_threadref_t thread;
-	uint64_t start;
-} taskwaitdata;
+	double start;
+} taskwait_t;
 
-static void taskwaitcb(uv_timer_t* handle) {
-	taskwaitdata* data = handle->data;
-	lua_State* L = luauv_threadref_get(&data->thread);
+static void taskwait_cb(uv_timer_t* uv) {
+	taskwait_t* req = uv->data;
 
-	double elapsed = (uv_now(luauv_execute_getloop(L)) - data->start) / 1000.0;
-	lua_pushnumber(L, elapsed);
+	lua_State* thread = luauv_threadref_get(&req->thread);
 
-	luauv_scheduler_spawn(L, NULL, 1);
+	lua_pushnumber(thread, lua_clock() - req->start);
+	luauv_scheduler_spawn(thread, thread, 1);
 
-	luauv_threadref_cleanup(&data->thread);
-	free(data);
-
-	uv_timer_stop(handle);
-	free(handle);
+	uv_timer_stop(uv);
+	luauv_threadref_cleanup(&req->thread);
+	free(req);
 }
 
-static int taskwait(lua_State* L) {
-	uv_loop_t* loop = luauv_execute_getloop(L);
+static int taskwait_fn(lua_State* L) {
+	double time = luaL_checknumber(L, 1);
+	
+	taskwait_t* req = malloc(sizeof(taskwait_t));
 
-	double time = luaL_optnumber(L, 1, 0.0);
+	luauv_threadref_init(&req->thread, L);
+	req->start = lua_clock();
 
-	taskwaitdata* data = malloc(sizeof(taskwaitdata));
-	luauv_threadref_init(&data->thread, L);
-	data->start = uv_now(loop);
+	uv_timer_init(luauv_execute_getloop(L), &req->uv);
+	req->uv.data = req;
 
-	uv_timer_t* handle = malloc(sizeof(uv_timer_t));
-	uv_timer_init(loop, handle);
-	handle->data = data;
-
-	uv_timer_start(handle, taskwaitcb, (uint64_t) (time * 1000.0), 0);
+	uv_timer_start(&req->uv, taskwait_cb, (uint64_t) (time * 1000.0), 0);
 
 	return lua_yield(L, 0);
 }
@@ -128,8 +139,8 @@ static int taskwait(lua_State* L) {
 int luauv_task_open(lua_State* L) {
 	static const luaL_Reg tasklib[] = {
 		{"spawn", taskspawn},
-		{"delay", taskdelay},
-		{"wait", taskwait},
+		{"delay", taskdelay_fn},
+		{"wait", taskwait_fn},
 		{NULL, NULL},
 	};
 
