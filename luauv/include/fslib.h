@@ -2,4 +2,4 @@
 
 #include "lua.h"
 
-int luauv_openfs(lua_State *L);
+int luauv_fs_open(lua_State *L);

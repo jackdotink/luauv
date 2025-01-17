@@ -1,8 +1,10 @@
 #include "require.h"
 
+#include <string.h>
+
+#include "fslib.h"
 #include "lua.h"
 #include "lualib.h"
-#include <string.h>
 
 static const char REG_REQUIRE_KEY = 'r';
 
@@ -44,7 +46,7 @@ static void load_std(lua_State* L, const char* path) {
 	}
 
 	if (strcmp(path, "@std/fs") == 0) {
-		//luauv_openfs(L);
+		luauv_fs_open(L);
 	} else {
 		luaL_error(L, "no such module '%s'", path);
 	}

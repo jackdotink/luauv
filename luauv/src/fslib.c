@@ -3,112 +3,133 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "execute.h"
 #include "lua.h"
 #include "lualib.h"
-#include "runtime.h"
+#include "threadref.h"
+#include "scheduler.h"
 #include "uv.h"
 
 typedef struct {
-	lua_State* L;
-	
-	char* filename;
+	uv_fs_t uv;
+
+	luauv_threadref_t thread;
+
+	uv_file fd;
 	uv_buf_t buf;
 
-	size_t result_size;
+	size_t result_cap;
 	size_t result_len;
-	char* result;
-} fsread_data_t;
+	char* result_ptr;
+} fsread_t;
 
-static fsread_data_t* fsread_data_init(lua_State* L, const char* filename) {
-	fsread_data_t* data = malloc(sizeof(fsread_data_t));
+static void fsread_cleanup(fsread_t* req) {
+	uv_fs_req_cleanup(&req->uv);
 
-	data->L = L;
-	
-	data->filename = malloc(strlen(filename) + 1);
-	strcpy(data->filename, filename);
+	if (req->fd >= 0)
+		uv_fs_close(NULL, &req->uv, req->fd, NULL);
 
-	data->buf = uv_buf_init(malloc(1024), 1024);
+	if (req->buf.base != NULL)
+		free(req->buf.base);
 
-	data->result_size = 1024;
-	data->result_len = 0;
-	data->result = malloc(1024);
+	if (req->result_ptr != NULL)
+		free(req->result_ptr);
 
-	return data;
+	luauv_threadref_cleanup(&req->thread);
 }
 
-static void fsread_data_cleanup(fsread_data_t* data) {
-	free(data->filename);
-	free(data->buf.base);
-	free(data->result);
-	free(data);
-}
-
-static void fsreadtostring_readcb(uv_fs_t* req) {
-	fsread_data_t* data = req->data;
-	ssize_t nread = req->result;	
+static void fsread_readcb(uv_fs_t* uv) {
+	fsread_t* req = uv->data;
+	size_t result = uv->result;
 	
-	lua_State* L = data->L;
-	luauv_runtime_t* runtime = luauv_runtime_get(L);
+	lua_State* thread = luauv_threadref_get(&req->thread);
 
-	if (nread < 0) {
-		luauv_runtime_spawnerror(runtime, L, NULL, "error reading file '%s': %s", data->filename, uv_strerror(nread));
-
-		fsread_data_cleanup(data);
-		free(req);
-	} else if (nread > 0) {
-		data->result_len += nread;
-		if (data->result_len > data->result_size) {
-			data->result_size *= 2;
-			data->result = realloc(data->result, data->result_size);
+	if (result < 0) {
+		luauv_scheduler_spawnerror(thread, NULL, "error while reading '%s': %s", req->uv.path, uv_strerror(uv->result));
+	} else if (result > 0) {
+		req->result_len += result;
+		if (req->result_len > req->result_cap) {
+			req->result_cap += req->result_cap / 2;
+			req->result_ptr = realloc(req->result_ptr, req->result_cap);
 		}
 
-		memcpy(data->result + data->result_len - nread, data->buf.base, nread);
-		uv_fs_read(runtime->loop, req, req->file, &data->buf, 1, -1, fsreadtostring_readcb);
-	} else {
-		lua_pushlstring(L, data->result, data->result_len);
-		uv_fs_close(runtime->loop, req, req->file, NULL);
-		
-		fsread_data_cleanup(data);
-		free(req);
+		memcpy(req->result_ptr + req->result_len - result, req->buf.base, result);
 
-		luauv_runtime_spawn(runtime, L, NULL, 1);
+		uv_fs_req_cleanup(&req->uv);
+		uv_fs_read(
+			luauv_execute_getloop(thread),
+			&req->uv,
+			req->fd,
+			&req->buf,
+			1,
+			-1,
+			fsread_readcb
+		);
+	} else {
+		lua_pushlstring(thread, req->result_ptr, req->result_len);
+		luauv_scheduler_spawn(thread, NULL, 1);
+
+		fsread_cleanup(req);
+		free(req);
 	}
 }
 
-static void fsreadtostring_opencb(uv_fs_t* req) {
-	fsread_data_t* data = req->data;
-	ssize_t fd = req->result;
+static void fsread_opencb(uv_fs_t* uv) {
+	fsread_t* req = uv->data;
+	int result = uv->result;
 
-	lua_State* L = data->L;
-	luauv_runtime_t* runtime = luauv_runtime_get(L);
+	lua_State* thread = luauv_threadref_get(&req->thread);
 
-	if (fd < 0) {
-		luauv_runtime_spawnerror(runtime, L, NULL, "error opening file '%s': %s", data->filename, uv_strerror(fd));
-
-		fsread_data_cleanup(data);
-		free(req);
+	if (result < 0) {
+		luauv_scheduler_spawnerror(thread, NULL, "error while opening '%s': %s", req->uv.path, uv_strerror(result));
 	} else {
-		uv_fs_read(runtime->loop, req, fd, &data->buf, 1, -1, fsreadtostring_readcb);
+		req->fd = result;
+
+		req->buf = uv_buf_init(malloc(4096), 4096);
+		req->result_cap = 4096;
+		req->result_len = 0;
+		req->result_ptr = malloc(4096);
+
+		uv_fs_req_cleanup(&req->uv);
+		uv_fs_read(
+			luauv_execute_getloop(thread),
+			&req->uv,
+			req->fd,
+			&req->buf,
+			1,
+			0,
+			fsread_readcb
+		);
 	}
 }
 
-static int fsreadtostring(lua_State* L) {
-	luauv_runtime_t* runtime = luauv_runtime_get(L);
+static int fsread_fn(lua_State* L) {
+	const char* path = luaL_checkstring(L, 1);
 
-	fsread_data_t* data = fsread_data_init(L, luaL_checkstring(L, 1));
-	uv_fs_t* req = malloc(sizeof(uv_fs_t));
-	req->data = data;
+	fsread_t* req = malloc(sizeof(fsread_t));
+	luauv_threadref_init(&req->thread, L);
+	
+	req->uv.data = req;
 
-	uv_fs_open(runtime->loop, req, data->filename, O_RDONLY, 0, fsreadtostring_opencb);
+	uv_fs_open(
+		luauv_execute_getloop(L),
+		&req->uv,
+		path,
+		UV_FS_O_RDONLY,
+		0,
+		fsread_opencb
+	);
 
 	return lua_yield(L, 0);
 }
 
-int luauv_openfs(lua_State* L) {
+int luauv_fs_open(lua_State* L) {
 	lua_createtable(L, 0, 1);
 
-	lua_pushcfunction(L, fsreadtostring, "readtostring");
-	lua_setfield(L, -2, "readtostring");
+	lua_pushcfunction(L, fsread_fn, "read");
+	lua_setfield(L, -2, "read");
+
+	lua_setreadonly(L, -1, 1);
 
 	return 1;
 }

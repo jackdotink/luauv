@@ -12,6 +12,7 @@ target_sources(luauv PRIVATE
 	luauv/src/tasklib.c
 
 	# loadable libraries
+	luauv/src/fslib.c
 
 	# misc
 	luauv/src/util.c
