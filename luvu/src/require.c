@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-#include "fslib.h"
 #include "lua.h"
 #include "lualib.h"
 
@@ -46,7 +45,7 @@ static void load_std(lua_State* L, const char* path) {
 	}
 
 	if (strcmp(path, "@std/fs") == 0) {
-		luauv_fs_open(L);
+		// todo
 	} else {
 		luaL_error(L, "no such module '%s'", path);
 	}
@@ -54,7 +53,7 @@ static void load_std(lua_State* L, const char* path) {
 	require_cache_set(L, path);
 }
 
-int luauv_require(lua_State* L) {
+int luvu_require(lua_State* L) {
 	const char* path = luaL_checkstring(L, 1);
 
 	if (path[0] != '@')

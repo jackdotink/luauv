@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(Luauv LANGUAGES C CXX)
+project(Luvu LANGUAGES C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_BUILD_TYPE Release)
@@ -18,13 +18,13 @@ set(LIBUV_BUILD_TESTS OFF)
 set(LIBUV_BUILD_BENCH OFF)
 add_subdirectory(vendor/libuv EXCLUDE_FROM_ALL)
 
-add_executable(luauv)
+add_executable(luvu)
 
-target_compile_definitions(luauv PRIVATE LUA_API= LUACODE_API= LUACODEGEN_API=)
+target_compile_definitions(luvu PRIVATE LUA_API= LUACODE_API= LUACODEGEN_API=)
 
-target_compile_features(luauv PRIVATE c_std_11)
-target_compile_options(luauv PRIVATE -Wall -Werror)
-set_target_properties(luauv PROPERTIES OUTPUT_NAME cli)
-target_link_libraries(luauv Luau.Compiler Luau.CodeGen Luau.VM uv_a)
+target_compile_features(luvu PRIVATE c_std_11)
+target_compile_options(luvu PRIVATE -Wall -Werror)
+set_target_properties(luvu PROPERTIES OUTPUT_NAME cli)
+target_link_libraries(luvu Luau.Compiler Luau.CodeGen Luau.VM uv_a)
 
 include(Sources.cmake)

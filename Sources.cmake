@@ -1,19 +1,18 @@
-target_include_directories(luauv PRIVATE luauv/include)
-target_sources(luauv PRIVATE
-	luauv/src/main.c
+target_include_directories(luvu PRIVATE luvu/include)
+target_sources(luvu PRIVATE
+	luvu/src/main.c
 
 	# runtime core
-	luauv/src/execute.c
-	luauv/src/threadref.c
-	luauv/src/scheduler.c
+	luvu/src/runtime.c
+	luvu/src/threadref.c
 
 	# globals
-	luauv/src/require.c
-	luauv/src/tasklib.c
+	luvu/src/require.c
+	luvu/src/lib/task.c
 
 	# loadable libraries
-	luauv/src/fslib.c
 
 	# misc
-	luauv/src/util.c
+	luvu/src/util/string.c
+	luvu/src/util/fs.c
 )
