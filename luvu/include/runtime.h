@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/string.h"
 #include "uv.h"
 #include "lua.h"
 
@@ -12,7 +13,6 @@ void luvu_spawnerror(lua_State* L, lua_State* from, const char* fmt, ...);
 
 lua_State* luvu_execute(
 	lua_State* main,
-	const char* name,
-	const char* code,
-	size_t codesize
+	cstring_t name,
+	string_t code
 );

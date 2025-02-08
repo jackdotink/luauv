@@ -11,6 +11,7 @@ target_sources(luvu PRIVATE
 	luvu/src/lib/task.c
 
 	# loadable libraries
+	luvu/src/lib/fs.c
 
 	# misc
 	luvu/src/util/string.c

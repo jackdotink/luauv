@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "lib/fs.h"
 #include "lua.h"
 #include "lualib.h"
 
@@ -45,7 +46,7 @@ static void load_std(lua_State* L, const char* path) {
 	}
 
 	if (strcmp(path, "@std/fs") == 0) {
-		// todo
+		luvu_openfs(L);
 	} else {
 		luaL_error(L, "no such module '%s'", path);
 	}

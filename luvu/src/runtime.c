@@ -7,6 +7,7 @@
 #include "lualib.h"
 #include "require.h"
 #include "lib/task.h"
+#include "util/string.h"
 #include "uv.h"
 
 lua_State* luvu_newruntime(uv_loop_t* loop) {
@@ -69,12 +70,13 @@ void luvu_spawnerror(lua_State* L, lua_State* from, const char* fmt, ...) {
 
 lua_State* luvu_execute(
 	lua_State* main,
-	const char* name,
-	const char* code,
-	size_t codesize
+	cstring_t name,
+	string_t code
 ) {
 	size_t bytecodesize;
-	char* bytecode = luau_compile(code, codesize, NULL, &bytecodesize);
+	char* bytecode = luau_compile(code.ptr, code.len, NULL, &bytecodesize);
+
+	string_cleanup(&code);
 
 	lua_State* L = luvu_newthread(main);
 
@@ -86,6 +88,8 @@ lua_State* luvu_execute(
 
 		fprintf(stderr, "%s\n", error);
 	}
+
+	free(bytecode);
 
 	lua_pop(main, 1);
 	luvu_spawn(L, NULL, 0);
